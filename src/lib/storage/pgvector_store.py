@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 
+import numpy as np
 from pgvector.psycopg import register_vector
 from psycopg import connect
 
@@ -80,19 +81,17 @@ class PgVectorEmbeddingStore:
                 """
             )
             rows = cur.fetchall()
+        return [self._to_record(row) for row in rows]
 
-        records: list[EmbeddingRecord] = []
-        for row in rows:
-            records.append(
-                EmbeddingRecord(
-                    id_imagen=row[0],
-                    embedding=list(row[1]),
-                    path=row[2],
-                    etiqueta=row[3],
-                    metadata=row[4] if isinstance(row[4], dict) else json.loads(row[4]),
-                )
-            )
-        return records
+    @staticmethod
+    def _to_record(row) -> EmbeddingRecord:
+        return EmbeddingRecord(
+            id_imagen=row[0],
+            embedding=[float(v) for v in row[1]],
+            path=row[2],
+            etiqueta=row[3],
+            metadata=row[4] if isinstance(row[4], dict) else json.loads(row[4]),
+        )
 
     def append(self, record: EmbeddingRecord) -> None:
         with self.conn.cursor() as cur:
@@ -120,7 +119,7 @@ class PgVectorEmbeddingStore:
                 ORDER BY embedding <=> %s
                 LIMIT %s
                 """,
-                (query, k),
+                (np.asarray(query, dtype=np.float32), k),
             )
             rows = cur.fetchall()
-        return [EmbeddingRecord.model_validate(row) for row in rows]
+        return [self._to_record(row) for row in rows]

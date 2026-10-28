@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     det_input_size: int = os.getenv("DET_INPUT_SIZE", 640)
     min_face_size: int = os.getenv("MIN_FACE_SIZE", 20)
     align_margin: float = os.getenv("ALIGN_MARGIN", 0.5)
+    det_pad: float = os.getenv("DET_PAD", 0.5)
     max_workers: int = os.getenv("MAX_WORKERS", 2)
     face_size: int = os.getenv("FACE_SIZE", 112)
     embedding_dim: int = os.getenv("EMBEDDING_DIM", 512)
