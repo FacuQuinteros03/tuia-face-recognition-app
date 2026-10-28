@@ -149,7 +149,7 @@ No hardcodeen parámetros: configúrenlos mediante `.env`.
 
 1. Para la ejecución local, copien `.env.local.example` a `src/.env`.
 2. Ajusten las variables del modelo, los paths y el threshold.
-3. Configuren el detector: `DETECTOR_MODEL_NAME` (opcional, archivo `.pth`/`.onnx` en `models/`), `DET_SCORE_THRESHOLD`, `DET_INPUT_SIZE`, `MIN_FACE_SIZE` y `ALIGN_MARGIN`. Si su detector viene de una librería, sobrescriban `_load_detector` en `face_service.py`.
+3. Configuren el detector: `DETECTOR_MODEL_NAME=det_10g.onnx` (SCRFD de InsightFace, en `models/`), `DET_SCORE_THRESHOLD`, `DET_INPUT_SIZE`, `MIN_FACE_SIZE`, `ALIGN_MARGIN` y `DET_PAD` (borde que se agrega antes de detectar; sin él SCRFD no detecta primeros planos, ver notebook 1).
 4. Opcional (habilitado por defecto): configuren la conexión a PostgreSQL + pgvector (`USE_PGVECTOR`). Con `USE_PGVECTOR=false`, los embeddings se guardan en un archivo JSON (`EMBEDDINGS_PATH`).
 
 ## Endpoints
@@ -169,37 +169,53 @@ No hardcodeen parámetros: configúrenlos mediante `.env`.
 - Persistencia configurable en JSON o en PostgreSQL + pgvector (`USE_PGVECTOR`).
 - Frontend para registrar identidades, predecir y visualizar los resultados (cajas, etiquetas y keypoints).
 
-### A implementar por el grupo (`src/lib/services/face_service.py`)
+### Implementado por el grupo
 
-Estas funciones hoy lanzan `NotImplementedError`:
+La detección, alineación y normalización están en un único módulo, [`src/lib/face_pipeline.py`](src/lib/face_pipeline.py), que importan **las dos notebooks y el backend**. Así el rostro que ve el modelo en la app se procesa exactamente igual que en el entrenamiento.
 
-1. `detect_faces`: detección de rostros. Devuelve las cajas `(x1, y1, x2, y2)`.
-2. `align_face`: alineación con landmarks y normalización a `FACE_SIZE`. Devuelve un `AlignedFace`.
-3. `extract_embedding_from_face`: extracción del embedding de dimensión `EMBEDDING_DIM`, normalizado L2.
+1. `detect_faces`: SCRFD (`det_10g.onnx`) con un borde de `DET_PAD` alrededor de la imagen. Devuelve cajas `(x1, y1, x2, y2)` enteras, recortadas a la imagen y filtradas por `MIN_FACE_SIZE`; lista vacía si no hay rostros.
+2. `align_face`: busca los 5 landmarks en un recorte con margen (`ALIGN_MARGIN`) alrededor de la caja y aplica una transformación de similitud a la plantilla de ArcFace (`norm_crop`) → rostro BGR de `FACE_SIZE × FACE_SIZE`. Los keypoints se devuelven relativos a la caja.
+3. `extract_embedding_from_face`: BGR→RGB, `(x − 127.5) / 127.5`, NCHW, inferencia (`.onnx` o `.pth`) y normalización L2. Devuelve `EMBEDDING_DIM` floats.
 
-Ver detalles y recomendaciones en [ENUNCIADO.md](ENUNCIADO.md#4-parte-3--integración-en-la-aplicación).
+Mejoras opcionales incluidas:
+
+- `identify` usa `PgVectorEmbeddingStore.search` (operador `<=>` de pgvector) cuando la métrica es coseno, en lugar de recorrer todos los registros en Python. Se corrigió además un bug en `search` (armaba los registros con `model_validate` sobre una tupla).
+- Tests unitarios en [`tests/test_face_service.py`](tests/test_face_service.py) (no requieren modelos): `python -m pytest tests`.
 
 ## Modelo y fine-tuning
 
-Completar en la entrega final:
+Detalle completo en [`2-train.ipynb`](2-train.ipynb).
 
-- Modelo elegido y link público de descarga
-- Arquitectura (ResNet, EfficientNet, ViT, CNN custom, etc.)
-- Justificación técnica y trade-offs frente al modelo descartado
-- Hiperparámetros y proceso de entrenamiento / fine-tuning
-- Umbral de similitud elegido y cómo se calibró
-- Análisis de errores (FP/FN)
-- Métricas: accuracy, precision, recall, AUC/EER
+- **Modelo elegido**: ArcFace R50 de InsightFace (`w600k_r50.onnx`, ResNet-50 entrenada con pérdida ArcFace sobre WebFace600K, embedding de 512) junto con el detector SCRFD (`det_10g.onnx`). Licencia de InsightFace: solo uso no comercial / investigación.
+- **Link público de descarga** (release oficial, solo lectura): https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip — descomprimir y copiar `w600k_r50.onnx` y `det_10g.onnx` en `models/`.
+- **Modelo comparado (descartado)**: CNN custom ([`src/lib/custom_cnn.py`](src/lib/custom_cnn.py)): ResNet chica (4 etapas residuales de 32 a 256 canales, pooling GDC, embedding de 512, 2,9 M de parámetros) entrenada desde cero sobre 75 identidades de Pins. Se hicieron 5 experimentos (softmax vs. CosFace/ArcFace, GAP vs. GDC, con y sin augmentation); el mejor fue ArcFace + GDC + augmentation. Hiperparámetros: AdamW (lr 2e-3, weight decay 5e-4), warmup de 2 épocas + coseno, batch 128, hasta 15 épocas con early stopping por AUC en identidades no vistas, fp32 (la GTX 1650 da NaN en fp16).
+- **Métricas** (20 personas nunca vistas por la CNN):
+
+  | Métrica | CNN custom | ArcFace R50 |
+  |---|---|---|
+  | AUC (verificación) | 0,906 | 1,000 |
+  | EER | 17,6% | 0,13% |
+  | TAR @ FAR=1e-3 | 13,0% | 99,9% |
+  | Top-1 accuracy | 73,6% | 100% |
+  | Precision / Recall / F1 (macro, con desconocidos) | 0,60 / 0,67 / 0,62 | 1,00 / 1,00 / 1,00 |
+  | Desconocidos rechazados | 17,7% | 100% |
+  | Tiempo de inferencia CPU (ms/rostro) | 3,3 | 27,4 |
+  | Tamaño (MB) | 11,8 | 174,4 |
+
+- **Justificación**: ArcFace es muy superior donde importa para la app (separar personas no vistas y rechazar desconocidos). La CNN es 15 veces más chica y 8 veces más rápida, pero rechaza solo el 18% de los desconocidos: aprende a clasificar sus 75 personas (92% de accuracy) pero no generaliza a gente nueva, por la diferencia en datos (75 personas vs. WebFace600K), capacidad y tiempo de entrenamiento.
+- **Umbral**: `SIMILARITY_THRESHOLD=0.28` (coseno), calibrado **solo con las 10 personas de validación** como el umbral que maximiza el F1 macro de identificación open-set (galería de 7 personas + 3 desconocidas). Está en el centro de la meseta de F1 ≈ 1 (0,22–0,38) y por encima de los umbrales de EER (0,20) y FAR = 1e-3 (0,22).
+- **Análisis de errores**: los falsos positivos de ArcFace (10 de ~486.000 pares) son entre mujeres de rasgos muy parecidos, con scores apenas sobre el umbral; los falsos negativos son máscaras, fotos de infancia vs. adultez, perfiles y fotos con texto encima.
 
 ## Dataset
 
-Documentar:
+Detalle completo en [`1-pre-processing.ipynb`](1-pre-processing.ipynb).
 
-- Fuente de las imágenes (propias y/o públicas) y su licencia
-- Cantidad por clase/persona
-- Balance de clases
-- Variaciones (iluminación, pose, expresión)
-- Reglas de filtrado y calidad
+- **Fuente**: [Pins Face Recognition](https://www.kaggle.com/datasets/hereisburak/pins-face-recognition) (Kaggle): 105 celebridades, 17.534 fotos de Pinterest ya recortadas alrededor del rostro. La notebook lo descarga sola con `kagglehub` (no requiere cuenta).
+- **Licencia**: Kaggle lo publica como CC0, pero las fotos son de Pinterest y ese CC0 no cubre los derechos de los fotógrafos ni la imagen de las personas: lo usamos solo con fines académicos y no se versiona (`data/*` está en el `.gitignore`).
+- **Cantidad y balance**: entre 86 y 237 imágenes por persona (mediana 169); desbalance moderado (2,8× entre la identidad más grande y la más chica).
+- **Variaciones**: pose (el ~9% son perfiles marcados), iluminación (escenas oscuras y sobreexpuestas), 7% en blanco y negro, expresiones, maquillaje, oclusiones (anteojos, pelo) y fotos de distintas épocas. Sesgo demográfico: celebridades mayormente jóvenes, de EE. UU. y Europa, de piel clara.
+- **Reglas de calidad** (en orden): archivo corrupto, sin rostro, varios rostros sin uno principal, rostro < 40 px, blur (varianza del Laplaciano < 20), exposición extrema, casi-duplicados (similitud de embeddings > 0,90, dentro y entre identidades) y etiquetas erróneas u outliers (similitud con la propia identidad < 0,30 o más cerca de otra). Se conservan **16.251 imágenes (92,7%)**; casi todo lo descartado son casi-duplicados (7,1%).
+- **Splits** (semilla 42): 75 personas para entrenar (9.138 / 1.142 / 1.143 imágenes en `train` / `val_closed` / `test_closed`), 10 personas no vistas para calibrar (`val_open`, 1.774) y 20 personas no vistas para el test final (`test_open`, 3.054). Sin fuga de datos entre splits.
 
 ## Notas importantes
 
