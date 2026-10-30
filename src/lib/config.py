@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     app_name: str = "Facial Recognition TP1"
     model_name: str | None = os.getenv("MODEL_NAME")
     similarity_metric: str = os.getenv("SIMILARITY_METRIC", "cosine")
-    similarity_threshold: float = os.getenv("SIMILARITY_THRESHOLD", 0.55)
+    similarity_threshold: float = os.getenv("SIMILARITY_THRESHOLD", 0.28)
     embeddings_path: Path = Path(os.getenv("EMBEDDINGS_PATH", "data/embeddings.json"))
     data_path: Path = Path(os.getenv("DATA_PATH", "data"))
     output_path: Path = Path(os.getenv("OUTPUT_PATH", "output"))
