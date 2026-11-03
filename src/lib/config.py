@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     app_name: str = "Facial Recognition TP1"
     model_name: str | None = os.getenv("MODEL_NAME")
     similarity_metric: str = os.getenv("SIMILARITY_METRIC", "cosine")
-    similarity_threshold: float = os.getenv("SIMILARITY_THRESHOLD", 0.55)
+    similarity_threshold: float = os.getenv("SIMILARITY_THRESHOLD", 0.28)
     embeddings_path: Path = Path(os.getenv("EMBEDDINGS_PATH", "data/embeddings.json"))
     data_path: Path = Path(os.getenv("DATA_PATH", "data"))
     output_path: Path = Path(os.getenv("OUTPUT_PATH", "output"))
@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     det_input_size: int = os.getenv("DET_INPUT_SIZE", 640)
     min_face_size: int = os.getenv("MIN_FACE_SIZE", 20)
     align_margin: float = os.getenv("ALIGN_MARGIN", 0.5)
+    det_pad: float = os.getenv("DET_PAD", 0.5)
     max_workers: int = os.getenv("MAX_WORKERS", 2)
     face_size: int = os.getenv("FACE_SIZE", 112)
     embedding_dim: int = os.getenv("EMBEDDING_DIM", 512)

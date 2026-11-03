@@ -69,6 +69,7 @@ face_service = FaceService(
     det_input_size=settings.det_input_size,
     min_face_size=settings.min_face_size,
     align_margin=settings.align_margin,
+    det_pad=settings.det_pad,
 )
 
 
