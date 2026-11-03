@@ -187,7 +187,7 @@ Mejoras opcionales incluidas:
 Detalle completo en [`2-train.ipynb`](2-train.ipynb).
 
 - **Modelo elegido**: ArcFace R50 de InsightFace (`w600k_r50.onnx`, ResNet-50 entrenada con pérdida ArcFace sobre WebFace600K, embedding de 512) junto con el detector SCRFD (`det_10g.onnx`). Licencia de InsightFace: solo uso no comercial / investigación.
-- **Link público de descarga** (release oficial, solo lectura): https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip — descomprimir y copiar `w600k_r50.onnx` y `det_10g.onnx` en `models/`.
+- **Link público de descarga** (Google Drive, solo lectura): https://drive.google.com/drive/folders/1dqhTJU-F1pZNTiFU5zqZGxkunEkyEWsr — contiene `w600k_r50.onnx` (reconocedor), `det_10g.onnx` (detector) y `custom_cnn.onnx` (la CNN entrenada por el grupo). Copiar `w600k_r50.onnx` y `det_10g.onnx` en `models/`. Fuente original de los dos primeros: release oficial de InsightFace (https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip).
 - **Modelo comparado (descartado)**: CNN custom ([`src/lib/custom_cnn.py`](src/lib/custom_cnn.py)): ResNet chica (4 etapas residuales de 32 a 256 canales, pooling GDC, embedding de 512, 2,9 M de parámetros) entrenada desde cero sobre 75 identidades de Pins. Se hicieron 5 experimentos (softmax vs. CosFace/ArcFace, GAP vs. GDC, con y sin augmentation); el mejor fue ArcFace + GDC + augmentation. Hiperparámetros: AdamW (lr 2e-3, weight decay 5e-4), warmup de 2 épocas + coseno, batch 128, hasta 15 épocas con early stopping por AUC en identidades no vistas, fp32 (la GTX 1650 da NaN en fp16).
 - **Métricas** (20 personas nunca vistas por la CNN):
 
